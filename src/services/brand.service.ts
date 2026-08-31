@@ -35,28 +35,31 @@ export class BrandService {
       });
 
       const latestWave = waves[0] ?? null;
-      const summary = latestWave ? await ResponseService.getSummary(latestWave) : EMPTY_SUMMARY;
+      const summary = latestWave
+        ? await ResponseService.getSummary(latestWave)
+        : EMPTY_SUMMARY;
 
-      const customers = await prisma.customer.findMany({
+      // Get the total number of customers in a single query
+      const customerCount = await prisma.customer.count({
         where: { brandId: brand.id },
-        select: { id: true },
       });
 
-      // How many of this brand's customers have ever given us feedback.
-      let activeCustomers = 0;
-      for (const customer of customers) {
-        const responseCount = await prisma.response.count({
-          where: { customerId: customer.id },
-        });
-        if (responseCount > 0) activeCustomers++;
-      }
+      // Find how many unique customers have ever given feedback
+      const activeCustomersResult = await prisma.response.findMany({
+        where: {
+          customer: { brandId: brand.id },
+        },
+        distinct: ["customerId"],
+        select: { customerId: true },
+      });
+      const activeCustomers = activeCustomersResult.length;
 
       results.push({
         ...brand,
         waveCount: waves.length,
         latestWave,
         summary,
-        customerCount: customers.length,
+        customerCount,
         activeCustomers,
       });
     }

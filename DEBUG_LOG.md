@@ -39,3 +39,17 @@
 **How I verified it:** Clicked around the different buckets and confirmed the URL and table update instantly on the very first click.
 
 **Blast radius:** I should probably check `SearchBox.tsx` and `WaveSelect.tsx` to make sure they aren't also mixing local state with URL updates in the same broken way, but fixing it here directly resolves the filter bug.
+
+## PULSE-104: Brands page is extremely slow due to N+1 queries
+
+**Symptom:** Loading the main Brands page takes over a second, even with just two brands in the database.
+
+**How I found it:** I reviewed the `listWithStats` function in `src/services/brand.service.ts` to see what data was being loaded for the page.
+
+**Root cause:** The function was suffering from a massive N+1 query problem. For each brand, it fetched all customers, and then looped through every single customer, executing a separate `prisma.response.count` query sequentially to see if they were active. For 1,000 customers, this meant 1,000 separate database calls per brand.
+
+**Fix:** Removed the `for` loop entirely. I replaced it with a single `prisma.customer.count` to get the total, and a single `prisma.response.findMany({ distinct: ['customerId'] })` query to count how many unique customers had submitted responses.
+
+**How I verified it:** Refreshed the brands page and observed that the load time dropped instantly from >1s to a few milliseconds.
+
+**Blast radius:** Scanned `brand.service.ts` and `response.service.ts` for other `for` loops making database queries. `BrandService.listWithStats` was the only place looping queries sequentially like this.
