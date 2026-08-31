@@ -38,7 +38,7 @@
 
 **How I verified it:** Clicked around the different buckets and confirmed the URL and table update instantly on the very first click.
 
-**Blast radius:** I should probably check `SearchBox.tsx` and `WaveSelect.tsx` to make sure they aren't also mixing local state with URL updates in the same broken way, but fixing it here directly resolves the filter bug.
+**Blast radius:** I checked `SearchBox.tsx` and `WaveSelect.tsx` to ensure they aren't mixing local state with URL updates in the same broken way. Both of those components correctly use the current values before pushing to the router, so the bug was isolated to the bucket filter.
 
 ## PULSE-104: Brands page is extremely slow due to N+1 queries
 
@@ -56,23 +56,25 @@
 
 ## PULSE-105: Webhook returns before saving and allows duplicate events
 
-**Symptom:** Running the test script reports that 0 events were stored initially, but they show up later. Also, the script's duplicate redelivery test causes multiple identical answers to be saved.
+**Symptom:** Running the test script reports that 0 events were stored initially, but they show up later. Also, the script's duplicate redelivery test causes multiple identical answers to be saved, and eventually crashes the API with a 500 error.
 
-**How I found it:** I looked at the webhook handler in `route.ts` and the data model in `schema.prisma`.
+**How I found it:** I looked at the webhook handler in `route.ts`, the deduplication logic in `response.service.ts`, and the data model in `schema.prisma`.
 
 **Root cause:**
 
 1. The webhook used `events.forEach(async...)`, which doesn't await the inner promises. The API responded with success before the database writes finished.
-2. The `eventId` deduplication relied entirely on a `findFirst` code-level check in `response.service.ts`. Under concurrent load, a race condition occurs where multiple requests check the DB simultaneously, see no existing record, and all write the same event.
+2. The `eventId` deduplication relied entirely on a `findFirst` code-level check. Under concurrent load, a race condition occurs where multiple requests check the DB simultaneously, see no existing record, and all write the same event.
+3. Once the unique constraint was added, concurrent identical requests caused the DB to throw a constraint error, crashing the API route.
 
 **Fix:**
 
 1. Replaced `forEach` with `await Promise.all(events.map(...))` in the route so the request blocks until the writes are actually done.
 2. Added an `@unique` constraint to the `eventId` field in `schema.prisma` to let the database strictly enforce idempotency.
+3. Wrapped the database `create` call in a `try/catch` to gracefully catch and ignore the unique constraint error without crashing.
 
-**How I verified it:** Ran the test script (`npm run send:responses -- --count 10 --duplicate`). The script now accurately reports the records being stored immediately, and the duplicate redelivery cleanly bounces off the unique constraint without creating duplicate rows.
+**How I verified it:** Ran the test script (`npm run send:responses -- --count 10 --duplicate`). The script now accurately reports the records being stored immediately, the duplicate redelivery cleanly bounces off the unique constraint without creating duplicate rows, and the API no longer crashes.
 
-**Blast radius:** Checked for other uses of `forEach(async...)` across the repo and didn't find any. The `@unique` constraint safely only applies to inbound provider events (since `eventId` can be null for in-app feedback).
+**Blast radius:** Checked for other uses of `forEach(async...)` across the repo and didn't find any. The `@unique` constraint safely only applies to inbound provider events.
 
 ## PULSE-106: Missing feedback due to timezone offset
 
@@ -101,3 +103,16 @@
 **How I verified it:** Searched for `can't` and `' OR 1=1 --`. The app no longer crashes and safely returns matching (or zero) results.
 
 **Blast radius:** Checked for other usages of `$queryRawUnsafe` in the repository; this was the only instance.
+
+---
+
+## Stage 2: Feature Flag Implementation
+
+**Feature:** Allow reviewers to flag/unflag feedback for follow-up and filter the table to see only flagged items. The filter survives a page refresh.
+
+**Decisions & Architecture:**
+
+1. **Data Model:** Added a `flagged Boolean @default(false)` column to the `Response` model in `schema.prisma` and ran `npx prisma db push` to avoid heavy migrations, adhering to `decisions.md`.
+2. **Service Layer:** Added `toggleFlag` to `ResponseService` and updated `listFeedback` to accept a `flagged` boolean, ensuring route handlers and UI components don't touch Prisma directly.
+3. **State Management (Filter):** Following the pattern set by `BucketFilter` and `SearchBox`, I stored the flagged filter state in the URL search params (`?flagged=true`). This natively guarantees that the filter survives a page refresh, works seamlessly with pagination, and keeps the UI shareable.
+4. **Mutation (Toggling the Flag):** Used a Next.js Server Action (`src/actions/responses.ts`) wired to a `<form>` inside the `FeedbackTable`. This allows us to cleanly mutate the database and trigger `revalidatePath("/brands/[slug]", "page")` to instantly refresh the server-rendered table without needing complex client-side state.

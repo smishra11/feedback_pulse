@@ -11,6 +11,7 @@ export type FeedbackRow = {
   verbatim: string | null;
   respondedAt: Date;
   customerName: string;
+  flagged: boolean;
 };
 
 export type FeedbackPage = {
@@ -27,6 +28,7 @@ export type ListFeedbackParams = {
   page: number;
   pageSize: number;
   sort: SortKey;
+  flagged?: boolean;
 };
 
 export type IncomingResponse = {
@@ -123,6 +125,10 @@ export class ResponseService {
       score: scoreFilter(bucket),
     };
 
+    if (params.flagged) {
+      where.flagged = true;
+    }
+
     const [rows, total] = await Promise.all([
       prisma.response.findMany({
         where,
@@ -144,6 +150,7 @@ export class ResponseService {
         verbatim: row.verbatim,
         respondedAt: row.respondedAt,
         customerName: row.customer.name,
+        flagged: row.flagged,
       })),
       total,
     };
@@ -225,5 +232,15 @@ export class ResponseService {
       });
       return false;
     }
+  }
+
+  /**
+   * Toggles the flagged status of a specific response.
+   */
+  static async toggleFlag(id: string, flagged: boolean): Promise<void> {
+    await prisma.response.update({
+      where: { id },
+      data: { flagged },
+    });
   }
 }

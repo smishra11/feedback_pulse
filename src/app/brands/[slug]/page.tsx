@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { AddCustomerForm } from "@/components/AddCustomerForm";
 import { BucketFilter } from "@/components/BucketFilter";
 import { FeedbackTable } from "@/components/FeedbackTable";
+import { FlagFilter } from "@/components/FlagFilter"; // <-- 1. Imported FlagFilter
 import { Pagination } from "@/components/Pagination";
 import { ScoreCard } from "@/components/ScoreCard";
 import { SearchBox } from "@/components/SearchBox";
@@ -48,13 +49,19 @@ export default async function BrandDetailPage({
   }
 
   const requestedWaveId = readParam(query, "wave");
-  const wave = waves.find((candidate) => candidate.id === requestedWaveId) ?? waves[0];
+  const wave =
+    waves.find((candidate) => candidate.id === requestedWaveId) ?? waves[0];
 
   const bucketParam = readParam(query, "bucket");
   const bucket = isBucket(bucketParam) ? bucketParam : "all";
   const search = readParam(query, "q") ?? "";
   const sort: SortKey = readParam(query, "sort") === "date" ? "date" : "score";
-  const page = Math.max(1, Number.parseInt(readParam(query, "page") ?? "1", 10) || 1);
+  const page = Math.max(
+    1,
+    Number.parseInt(readParam(query, "page") ?? "1", 10) || 1,
+  );
+
+  const flagged = readParam(query, "flagged") === "true";
 
   const summary = await ResponseService.getSummary(wave);
   const { rows, total } = await ResponseService.listFeedback({
@@ -64,22 +71,34 @@ export default async function BrandDetailPage({
     page,
     pageSize: PAGE_SIZE,
     sort,
+    flagged,
   });
 
-  const linkQuery: Record<string, string> = { wave: wave.id, bucket, q: search };
+  const linkQuery: Record<string, string> = {
+    wave: wave.id,
+    bucket,
+    q: search,
+    ...(flagged ? { flagged: "true" } : {}),
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{brand.name}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {brand.name}
+          </h1>
           <p className="mt-1 text-sm text-slate-600">
-            {wave.label} · {formatDate(wave.startDate)} – {formatDate(wave.endDate)}
+            {wave.label} · {formatDate(wave.startDate)} –{" "}
+            {formatDate(wave.endDate)}
           </p>
         </div>
 
         <WaveSelect
-          waves={waves.map((option) => ({ id: option.id, label: option.label }))}
+          waves={waves.map((option) => ({
+            id: option.id,
+            label: option.label,
+          }))}
           currentId={wave.id}
         />
       </div>
@@ -91,8 +110,12 @@ export default async function BrandDetailPage({
         <AddCustomerForm brandId={brand.id} brandSlug={brand.slug} />
       </div>
 
+      {/* 2. Added the FlagFilter next to the BucketFilter */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <BucketFilter current={bucket} />
+        <div className="flex flex-wrap items-center gap-3">
+          <BucketFilter current={bucket} />
+          <FlagFilter current={flagged} />
+        </div>
         <SearchBox current={search} />
       </div>
 
