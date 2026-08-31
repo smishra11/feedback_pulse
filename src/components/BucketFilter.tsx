@@ -16,13 +16,10 @@ const LABELS: Record<Bucket, string> = {
 export function BucketFilter({ current }: { current: Bucket }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [bucket, setBucket] = useState<Bucket>(current);
 
   const onSelect = (next: Bucket) => {
-    setBucket(next);
-
     const params = new URLSearchParams(searchParams.toString());
-    params.set("bucket", bucket);
+    params.set("bucket", next);
     params.set("page", "1");
     router.push(`?${params.toString()}`);
   };
@@ -36,7 +33,9 @@ export function BucketFilter({ current }: { current: Bucket }) {
           onClick={() => onSelect(option)}
           className={cx(
             "rounded px-3 py-1.5 text-sm transition-colors",
-            bucket === option ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100",
+            current === option
+              ? "bg-slate-900 text-white"
+              : "text-slate-600 hover:bg-slate-100",
           )}
         >
           {LABELS[option]}

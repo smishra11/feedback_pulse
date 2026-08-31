@@ -25,3 +25,17 @@
 **How I verified it:** I went to a wave that had a bunch of identical scores and clicked back and forth between the pages. The rows stayed put.
 
 **Blast radius:** I noticed `loadWaveFeedback` also sorts only by date without a tie-breaker. However, since it pulls the whole dataset at once without `OFFSET`/`LIMIT` pagination, the shuffling doesn't cause any duplicate row issues in the UI. The fix in `listFeedback` covers the bug completely.
+
+## PULSE-103: Bucket filter is one click behind
+
+**Symptom:** Clicking a filter like "Detractors" doesn't do anything. Clicking it a second time applies it. It always feels like it's applying the previous click.
+
+**How I found it:** I looked at the click handler (`onSelect`) in `src/components/BucketFilter.tsx`.
+
+**Root cause:** The handler called `setBucket(next)` but then immediately built the new URL using the `bucket` state variable. Since React state updates are async, `bucket` still held the stale value, so it was pushing the old filter to the URL.
+
+**Fix:** I ripped out the local `useState` completely. The URL should be the single source of truth anyway. I updated the `onSelect` function to use the incoming `next` argument directly when setting the URL param, and swapped the active styling check to use the `current` prop.
+
+**How I verified it:** Clicked around the different buckets and confirmed the URL and table update instantly on the very first click.
+
+**Blast radius:** I should probably check `SearchBox.tsx` and `WaveSelect.tsx` to make sure they aren't also mixing local state with URL updates in the same broken way, but fixing it here directly resolves the filter bug.
