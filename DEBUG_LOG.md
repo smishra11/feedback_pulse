@@ -73,3 +73,17 @@
 **How I verified it:** Ran the test script (`npm run send:responses -- --count 10 --duplicate`). The script now accurately reports the records being stored immediately, and the duplicate redelivery cleanly bounces off the unique constraint without creating duplicate rows.
 
 **Blast radius:** Checked for other uses of `forEach(async...)` across the repo and didn't find any. The `@unique` constraint safely only applies to inbound provider events (since `eventId` can be null for in-app feedback).
+
+## PULSE-106: Missing feedback due to timezone offset
+
+**Symptom:** The dashboard shows "No feedback yet" for specific waves (like the Flash Feb 2026 wave), even though responses exist in the database.
+
+**How I found it:** Looked at how the date filters were constructed in `waveWindow` inside `src/services/wave.service.ts`.
+
+**Root cause:** The function used `.setHours()` which applies the local timezone offset to the date. If the server is in a timezone ahead of UTC, setting local time to 23:59 actually shifts the UTC window backward (e.g., to 18:29 UTC in IST). This chopped off the end of the day, artificially excluding any feedback that landed late in the evening UTC.
+
+**Fix:** Swapped `.setHours()` with `.setUTCHours()` so the window correctly spans the absolute 00:00:00 to 23:59:59 bounds of the UTC calendar day.
+
+**How I verified it:** Checked the dashboard for the Flash wave. The missing feedback instantly appeared and populated the scores.
+
+**Blast radius:** Checked `format.ts` or other date utilities to see if we were blindly relying on local timezone functions elsewhere. The bug seems confined to this specific database boundary calculation.
