@@ -87,3 +87,17 @@
 **How I verified it:** Checked the dashboard for the Flash wave. The missing feedback instantly appeared and populated the scores.
 
 **Blast radius:** Checked `format.ts` or other date utilities to see if we were blindly relying on local timezone functions elsewhere. The bug seems confined to this specific database boundary calculation.
+
+## PULSE-107: SQL Injection and crash on single quotes in search
+
+**Symptom:** Typing a single quote (like in the word "can't") into the feedback search box causes the entire page to crash.
+
+**How I found it:** I noticed that the search query in `src/services/response.service.ts` was using `prisma.$queryRawUnsafe` and dynamically injecting the unescaped `${search}` string directly into an `ILIKE` SQL clause.
+
+**Root cause:** Because the search term wasn't parameterized, a single quote in the input prematurely closed the SQL string boundary, resulting in a Postgres syntax error and a 500 crash.
+
+**Fix:** Removed the raw SQL entirely. I unified the search and non-search logic into a single Prisma `findMany` query, utilizing Prisma's native `{ contains: search, mode: "insensitive" }` filter. Prisma automatically parameterizes the inputs, preventing SQL injection and handling quotes safely.
+
+**How I verified it:** Searched for `can't` and `' OR 1=1 --`. The app no longer crashes and safely returns matching (or zero) results.
+
+**Blast radius:** Checked for other usages of `$queryRawUnsafe` in the repository; this was the only instance.

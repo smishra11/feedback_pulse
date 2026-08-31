@@ -105,45 +105,20 @@ export class ResponseService {
     const { wave, bucket, search, page, pageSize, sort } = params;
     const { start, end } = waveWindow(wave);
     const offset = (page - 1) * pageSize;
+    const isSearching = search.trim().length > 0;
 
-    if (search.trim().length > 0) {
-      const cacheKey = `${wave.id}|${bucket}|${sort}|${page}|${search}`;
+    const cacheKey = `${wave.id}|${bucket}|${sort}|${page}|${search}`;
+    if (isSearching) {
       const cached = getCached<FeedbackPage>(cacheKey);
       if (cached) return cached;
-
-      const where = `
-        WHERE r."waveId" = '${wave.id}'
-          AND r.verbatim IS NOT NULL
-          AND r."respondedAt" >= '${start.toISOString()}'
-          AND r."respondedAt" <= '${end.toISOString()}'
-          AND r.verbatim ILIKE '%${search}%'
-          ${scoreSql(bucket)}
-      `;
-
-      const rows = await prisma.$queryRawUnsafe<FeedbackRow[]>(`
-        SELECT r.id, r.score, r.verbatim, r."respondedAt", c.name AS "customerName"
-        FROM "Response" r
-        JOIN "Customer" c ON c.id = r."customerId"
-        ${where}
-        ORDER BY ${sort === "score" ? "r.score DESC" : 'r."respondedAt" DESC'}, r.id ASC
-        LIMIT ${pageSize} OFFSET ${offset}
-      `);
-
-      const counted = await prisma.$queryRawUnsafe<{ count: number }[]>(`
-        SELECT COUNT(*)::int AS count
-        FROM "Response" r
-        JOIN "Customer" c ON c.id = r."customerId"
-        ${where}
-      `);
-
-      const result: FeedbackPage = { rows, total: counted[0]?.count ?? 0 };
-      setCached(cacheKey, result);
-      return result;
     }
 
-    const where = {
+    // Safely build the query object. Prisma handles escaping quotes automatically!
+    const where: any = {
       waveId: wave.id,
-      verbatim: { not: null },
+      verbatim: isSearching
+        ? { not: null, contains: search.trim(), mode: "insensitive" }
+        : { not: null },
       respondedAt: { gte: start, lte: end },
       score: scoreFilter(bucket),
     };
@@ -162,7 +137,7 @@ export class ResponseService {
       prisma.response.count({ where }),
     ]);
 
-    return {
+    const result = {
       rows: rows.map((row) => ({
         id: row.id,
         score: row.score,
@@ -172,6 +147,12 @@ export class ResponseService {
       })),
       total,
     };
+
+    if (isSearching) {
+      setCached(cacheKey, result);
+    }
+
+    return result;
   }
 
   /**
