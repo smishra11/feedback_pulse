@@ -224,17 +224,25 @@ export class ResponseService {
       return false;
     }
 
-    await prisma.response.create({
-      data: {
-        waveId: wave.id,
-        customerId: customer.id,
-        score: event.score,
-        verbatim: event.text?.trim() ? event.text.trim() : null,
+    try {
+      await prisma.response.create({
+        data: {
+          waveId: wave.id,
+          customerId: customer.id,
+          score: event.score,
+          verbatim: event.text?.trim() ? event.text.trim() : null,
+          eventId: event.eventId,
+          respondedAt: new Date(),
+        },
+      });
+      return true;
+    } catch (error) {
+      // The database caught the race condition and threw a unique constraint error.
+      // We can safely ignore it, just like a normal duplicate.
+      console.info("[webhook] concurrent duplicate caught by DB constraint", {
         eventId: event.eventId,
-        respondedAt: new Date(),
-      },
-    });
-
-    return true;
+      });
+      return false;
+    }
   }
 }

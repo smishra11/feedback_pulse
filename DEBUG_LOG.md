@@ -53,3 +53,23 @@
 **How I verified it:** Refreshed the brands page and observed that the load time dropped instantly from >1s to a few milliseconds.
 
 **Blast radius:** Scanned `brand.service.ts` and `response.service.ts` for other `for` loops making database queries. `BrandService.listWithStats` was the only place looping queries sequentially like this.
+
+## PULSE-105: Webhook returns before saving and allows duplicate events
+
+**Symptom:** Running the test script reports that 0 events were stored initially, but they show up later. Also, the script's duplicate redelivery test causes multiple identical answers to be saved.
+
+**How I found it:** I looked at the webhook handler in `route.ts` and the data model in `schema.prisma`.
+
+**Root cause:**
+
+1. The webhook used `events.forEach(async...)`, which doesn't await the inner promises. The API responded with success before the database writes finished.
+2. The `eventId` deduplication relied entirely on a `findFirst` code-level check in `response.service.ts`. Under concurrent load, a race condition occurs where multiple requests check the DB simultaneously, see no existing record, and all write the same event.
+
+**Fix:**
+
+1. Replaced `forEach` with `await Promise.all(events.map(...))` in the route so the request blocks until the writes are actually done.
+2. Added an `@unique` constraint to the `eventId` field in `schema.prisma` to let the database strictly enforce idempotency.
+
+**How I verified it:** Ran the test script (`npm run send:responses -- --count 10 --duplicate`). The script now accurately reports the records being stored immediately, and the duplicate redelivery cleanly bounces off the unique constraint without creating duplicate rows.
+
+**Blast radius:** Checked for other uses of `forEach(async...)` across the repo and didn't find any. The `@unique` constraint safely only applies to inbound provider events (since `eventId` can be null for in-app feedback).
