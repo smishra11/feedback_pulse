@@ -125,7 +125,7 @@ export class ResponseService {
         FROM "Response" r
         JOIN "Customer" c ON c.id = r."customerId"
         ${where}
-        ORDER BY ${sort === "score" ? 'r.score DESC' : 'r."respondedAt" DESC'}
+        ORDER BY ${sort === "score" ? "r.score DESC" : 'r."respondedAt" DESC'}, r.id ASC
         LIMIT ${pageSize} OFFSET ${offset}
       `);
 
@@ -152,7 +152,10 @@ export class ResponseService {
       prisma.response.findMany({
         where,
         include: { customer: { select: { name: true } } },
-        orderBy: sort === "score" ? { score: "desc" } : { respondedAt: "desc" },
+        orderBy:
+          sort === "score"
+            ? [{ score: "desc" }, { id: "asc" }]
+            : [{ respondedAt: "desc" }, { id: "asc" }],
         skip: offset,
         take: pageSize,
       }),
@@ -176,9 +179,14 @@ export class ResponseService {
    * be matched to existing records. See docs/decisions.md.
    */
   static async record(event: IncomingResponse): Promise<boolean> {
-    const brand = await prisma.brand.findUnique({ where: { slug: event.brandSlug } });
+    const brand = await prisma.brand.findUnique({
+      where: { slug: event.brandSlug },
+    });
     if (!brand) {
-      console.warn("[webhook] unknown brand", { slug: event.brandSlug, eventId: event.eventId });
+      console.warn("[webhook] unknown brand", {
+        slug: event.brandSlug,
+        eventId: event.eventId,
+      });
       return false;
     }
 
@@ -186,7 +194,10 @@ export class ResponseService {
       where: { brandId_phone: { brandId: brand.id, phone: event.from } },
     });
     if (!customer) {
-      console.warn("[webhook] unknown customer", { from: event.from, eventId: event.eventId });
+      console.warn("[webhook] unknown customer", {
+        from: event.from,
+        eventId: event.eventId,
+      });
       return false;
     }
 
@@ -194,7 +205,10 @@ export class ResponseService {
       where: { brandId_label: { brandId: brand.id, label: event.waveLabel } },
     });
     if (!wave) {
-      console.warn("[webhook] unknown wave", { label: event.waveLabel, eventId: event.eventId });
+      console.warn("[webhook] unknown wave", {
+        label: event.waveLabel,
+        eventId: event.eventId,
+      });
       return false;
     }
 
@@ -204,7 +218,9 @@ export class ResponseService {
     });
 
     if (alreadyRecorded) {
-      console.info("[webhook] duplicate event ignored", { eventId: event.eventId });
+      console.info("[webhook] duplicate event ignored", {
+        eventId: event.eventId,
+      });
       return false;
     }
 
